@@ -1,3 +1,7 @@
+# Standard package
+from datetime import datetime, timedelta
+# Django
+from django.db.models.functions import TruncDay
 # Drf package
 from rest_framework import status
 from rest_framework.views import APIView
@@ -12,12 +16,19 @@ from api.serializers import ConfirmedCaseSerializer, DistrictSerializer
 
 class CovidityAPIView(APIView):
     def get(self, request):
-        # TODO - 지역 이름 받아오기
-        # TODO - 지역에 해당하는 확진자 케이스 최근 7일 가져오기
-        # TODO - 일 별로 중복되는 ConfirmedCase는 최신 것만 가져오기
-        districts = District.objects.all()
-        districts_data = DistrictSerializer(districts, many=True).data
-        return Response(districts_data)
+        district = request.query_params.get('district')
+        # TODO - district validation (empty, invalid)
+        # 해당 지역에 속한 24시간 내에 가장 이른 케이스와 가장 늦은 케이스 조회
+        yesterday_case = ConfirmedCase.objects.filter(
+            district__name=district, created_at__gte=datetime.today()-timedelta(days=1)).first()
+        today_case = ConfirmedCase.objects.filter(
+            district__name=district, created_at__gte=datetime.today()-timedelta(days=1)).last()
+        # 질본, 서울시 업데이트 인터벌에 맞춰서 조회 후 직렬화
+        data = {
+            "yesterday": ConfirmedCaseSerializer(yesterday_case).data,
+            "today": ConfirmedCaseSerializer(today_case).data
+        }
+        return Response(data)
 
     def post(self, request):
         data = {}
@@ -30,10 +41,12 @@ class CovidityAPIView(APIView):
         for index, district in enumerate(districts):
             # 지역구 데이터베이스 초기화 혹은 등록
             district_name = district.get()
-            district_object, created = District.objects.get_or_create(name=district_name)
+            district_object, created = District.objects.get_or_create(
+                name=district_name)
             # 지역구 별 확진자 수 갱신 및 등록
             number = numbers[index].get()
-            ConfirmedCase.objects.create(count=int(number), district=district_object)
+            ConfirmedCase.objects.create(
+                count=int(number), district=district_object)
             # API Respose 오브젝트 키 추가
             data[district_name] = number
         return Response(data)
